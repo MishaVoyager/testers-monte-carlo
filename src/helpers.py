@@ -1,6 +1,7 @@
 from typing import Optional
 
 import matplotlib
+from numpy import ndarray
 
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -15,20 +16,28 @@ class NormalVar:
     Рассчитывает среднее и стандартное отклонение
     """
 
-    def __init__(self, min: float, max: float):
+    def __init__(self, min: float, max: float, name: str):
         if max < min:
             raise ValueError(f"Max значение {max} меньше min {min}")
         self.min: float = min
         self.max: float = max
         self.average: float = (max - min) // 2
         self.std_90: float = (max - min) / 3.29
+        self.name: str = name
 
-    def gen_normal_values(self, n: int):
+    def gen_normal_values(self, n: int) -> ndarray:
         """
         Генерирует значения в рамках нормального распределения
         Для метода Монте-Карло нужен именно такой рандом
         """
         return np.random.normal(self.average, self.std_90, n)
+
+    def gen_normal_values_dict(self, n: int) -> dict[str, ndarray]:
+        """
+        Генерирует значения в рамках нормального распределения
+        Для метода Монте-Карло нужен именно такой рандом
+        """
+        return {self.name: np.random.normal(self.average, self.std_90, n)}
 
 
 def draw_confidence_interval(df: DataFrame, series_name: str = "result") -> None:
@@ -97,3 +106,12 @@ def print_stats(df: DataFrame, column_name: str) -> None:
     print(f"Минимум: {df[column_name].min()}")
     print(f"Максимум: {df[column_name].max()}")
     print(f"Среднее: {df[column_name].mean()}")
+
+
+def adjust_non_positive_values(df: DataFrame, positive_cols: list[str], non_negative_cols: list[str]) -> DataFrame:
+    """Приведение нереальных непозитивных значений к минимальным"""
+    for col in positive_cols:
+        df.loc[df[col] <= 0, col] = 1
+    for col in non_negative_cols:
+        df.loc[df[col] < 0, col] = 0
+    return df
