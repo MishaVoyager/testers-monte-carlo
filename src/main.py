@@ -20,18 +20,30 @@ class Beneficiary(Enum):
 NON_NEGATIVE_COLS: list[str] = [
     "maintain_test_per_year_in_minutes",
     "additional_checks_per_year",
-    "uncovered_scenario_fixes_per_year"
+    "uncovered_scenario_fixes_per_year",
+    "additional_fix_time_in_minutes"
 ]
 
 POSITIVE_COLS: list[str] = [
     "scenarios_per_task",
     "automate_scenario_in_minutes",
-    "manual_check_scenario_in_minutes",
-    "fix_time_in_minutes"
+    "manual_check_scenario_in_minutes"
 ]
 
 
 class TestCoverageApproximations(BaseModel):
+    """
+    Значения, определенные на основе min и max с 90% уверенностью,
+    необходимые для оценки времени, которое поможет сэкономить автоматизация
+    :param scenarios_per_task: количество сценариев на автоматизацию в задаче
+    :param automate_scenario_in_minutes: сколько минут займет автоматизация сценария
+    :param manual_check_scenario_in_minutes: сколько минут займет ручная проверка сценария
+    :param additional_checks_per_year: сколько раз в году приходится выполнять регрессионные проверки сценария
+    :param uncovered_scenario_fixes_per_year: сколько раз в году ломается непокрытый сценарий
+    :param additional_fix_time_in_minutes: доп. время на починку непокрытого сценария - из-за
+    необходимости выяснять причину через логи, переключать контекст (чинить покрытый сценарий проще)
+    :param maintain_test_per_year_in_minutes: сколько минут в год уходит на поддержку теста
+    """
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     scenarios_per_task: NormalVar
@@ -39,7 +51,7 @@ class TestCoverageApproximations(BaseModel):
     manual_check_scenario_in_minutes: NormalVar
     additional_checks_per_year: NormalVar
     uncovered_scenario_fixes_per_year: NormalVar
-    fix_time_in_minutes: NormalVar
+    additional_fix_time_in_minutes: NormalVar
     maintain_test_per_year_in_minutes: NormalVar
 
     @field_validator(*POSITIVE_COLS)
@@ -63,7 +75,7 @@ def main():
         manual_check_scenario_in_minutes=NormalVar(5, 60, "manual_check_scenario_in_minutes"),
         additional_checks_per_year=NormalVar(0, 2, "additional_checks_per_year"),
         uncovered_scenario_fixes_per_year=NormalVar(0.1, 0.3, "uncovered_scenario_fixes_per_year"),
-        fix_time_in_minutes=NormalVar(30, 100, "fix_time_in_minutes")
+        additional_fix_time_in_minutes=NormalVar(20, 100, "additional_fix_time_in_minutes")
     )
     get_test_coverage_economy(data, 10000, 200, 5, 2, Beneficiary.Both)
 
@@ -80,9 +92,10 @@ def get_test_coverage_economy(
     Рассчитывает шанс потратить на автоматизацию больше времени, чем сэкономить
     :param data: информация о переменных, которые используются для расчета
     :param n: количество рандомных случаев (в нормальном распределении) для метода Монте-Карло
-    :param tasks_per_year: количество задач в году
+    :param tasks_per_year: количество задач в году, для которых можно написать хоть один тест
     :param years: количество лет, которые в среднем проживают задачи
-    :param min_checks: минимальное количество проверок сценария во время тестирования задачи
+    :param min_checks: минимальное количество проверок сценария во время тестирования задачи, например, 2,
+    если выполняется 2 круга тестирования (можно сэкономить на обоих, если написать тест до ручного тестирования)
     :param beneficiary: рассчитываем пользу для разработчиков, тестировщиков или всех
     """
     df = prepare_df(data, beneficiary, n)
@@ -105,7 +118,7 @@ def prepare_df(data: TestCoverageApproximations, beneficiary: Beneficiary, n: in
     if beneficiary.Developer or Beneficiary.Both:
         df[data.uncovered_scenario_fixes_per_year.name] = \
             data.uncovered_scenario_fixes_per_year.gen_normal_values(n)
-        df[data.fix_time_in_minutes.name] = data.fix_time_in_minutes.gen_normal_values(n)
+        df[data.additional_fix_time_in_minutes.name] = data.additional_fix_time_in_minutes.gen_normal_values(n)
     return df
 
 
@@ -172,7 +185,7 @@ def calculate_developer_economy(
     dev_spendings_per_scenario = "dev_spendings_per_scenario"
     df[dev_spendings_per_scenario] = df.apply(
         lambda row:
-        row[data.uncovered_scenario_fixes_per_year.name] * row[data.fix_time_in_minutes.name] * years,
+        row[data.uncovered_scenario_fixes_per_year.name] * row[data.additional_fix_time_in_minutes.name] * years,
         axis=1
     )
     df[result_column] = df.apply(
@@ -202,7 +215,7 @@ def calculate_both_economy(
     df["dev_spendings_per_scenario"] = df.apply(
         lambda row:
         row[data.uncovered_scenario_fixes_per_year.name]
-        * row[data.fix_time_in_minutes.name] * years,
+        * row[data.additional_fix_time_in_minutes.name] * years,
         axis=1
     )
     df[result_column] = df.apply(
@@ -230,6 +243,7 @@ def draw_and_print_coverage_case_result(df: DataFrame, result_column: str) -> No
     working_hours_in_month = 159
     print(f"Среднее в рабочих месяцах: {df[result_column].mean() / 60 / working_hours_in_month}")
     helpers.output_fail_chance(0, df, result_column, "Шанс НЕ сэкономить")
+
 
 if __name__ == "__main__":
     main()

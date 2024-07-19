@@ -95,7 +95,7 @@ def draw_hist_with_average(
 
 def output_fail_chance(min_profit: int, df: DataFrame, series_name: str = "result", msg: str = "Шанс провала") -> None:
     """Выводит вероятность, что проект убыточный"""
-    fail_chance = (df[series_name].size - df[df[series_name] >= min_profit][series_name].count()) / df[
+    fail_chance = (df[series_name].size - df[df[series_name] > min_profit][series_name].count()) / df[
         series_name].size
     print(f"{msg}: {fail_chance}")
 
