@@ -33,7 +33,7 @@ def case_1_economies_per_product(
     plt.savefig("case_one.jpg")
     plt.show()
 
-    helpers.output_fail_chance(min_profit, df, "result")
+    print(f"Шанс провала: {helpers.calculate_fail_chance(df, min_profit, result_column_name)}%")
 
 
 def prepare_df_for_economies_per_product(

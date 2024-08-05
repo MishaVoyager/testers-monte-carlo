@@ -21,7 +21,7 @@ class NormalVar:
             raise ValueError(f"Max значение {max} меньше min {min}")
         self.min: float = min
         self.max: float = max
-        self.average: float = (max - min) // 2
+        self.average: float = (max + min) / 2
         self.std_90: float = (max - min) / 3.29
         self.name: str = name
 
@@ -80,7 +80,8 @@ def draw_hist_with_average(
     """Рисует гистограмму с линией среднего значения"""
     plt.ticklabel_format(style='plain', axis='y', useOffset=False)
     plt.hist(df[series_name],
-             range=(df[series_name].min(), df[series_name].max()),
+             range=(
+             df[series_name].mean() - 3 * df[series_name].std(), df[series_name].mean() + 3 * df[series_name].std()),
              color='green',
              bins=100,
              label=label
@@ -93,19 +94,10 @@ def draw_hist_with_average(
         plt.show()
 
 
-def output_fail_chance(min_profit: int, df: DataFrame, series_name: str = "result", msg: str = "Шанс провала") -> None:
-    """Выводит вероятность, что проект убыточный"""
-    fail_chance = (df[series_name].size - df[df[series_name] > min_profit][series_name].count()) / df[
-        series_name].size
-    print(f"{msg}: {fail_chance}")
-
-
-def print_stats(df: DataFrame, column_name: str) -> None:
-    """Выводит основные статистические показатели"""
-    print(f"Количество: {df[column_name].size}")
-    print(f"Минимум: {df[column_name].min()}")
-    print(f"Максимум: {df[column_name].max()}")
-    print(f"Среднее: {df[column_name].mean()}")
+def calculate_fail_chance(df: DataFrame, min_profit: int, profit_column: str) -> None:
+    """Возвращает вероятность, что проект убыточный"""
+    fail_chance = df[df[profit_column] <= min_profit].size / df.size
+    return round(fail_chance * 100, 2)
 
 
 def adjust_non_positive_values(df: DataFrame, positive_cols: list[str], non_negative_cols: list[str]) -> DataFrame:

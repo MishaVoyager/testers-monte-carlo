@@ -3,6 +3,7 @@ from matplotlib import pyplot as plt
 from pydantic import BaseModel, ConfigDict, field_validator
 
 matplotlib.use('TkAgg')
+import numpy as np
 import pandas as pd
 from pandas import DataFrame
 from enum import Enum
@@ -43,6 +44,9 @@ class TestCoverageApproximations(BaseModel):
     :param additional_fix_time_in_minutes: доп. время на починку непокрытого сценария - из-за
     необходимости выяснять причину через логи, переключать контекст (чинить покрытый сценарий проще)
     :param maintain_test_per_year_in_minutes: сколько минут в год уходит на поддержку теста
+    :param scenario_checks_before_release: минимальное количество проверок сценария во время тестирования задачи, например, 2 (это если предполагается написание автотестов до ручного тестирования, а если после - то 0, потому что автоматизация не поможет сократить эти проверки)
+    :param tasks_per_year: количество задач в год, в которых есть хоть один сценарий, поддающийся автоматизации
+    :param feature_lifespan_in_years: количество лет, которые в среднем проживают фичи
     """
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -53,6 +57,9 @@ class TestCoverageApproximations(BaseModel):
     uncovered_scenario_fixes_per_year: NormalVar
     additional_fix_time_in_minutes: NormalVar
     maintain_test_per_year_in_minutes: NormalVar
+    scenario_checks_before_release: NormalVar
+    tasks_per_year: NormalVar
+    feature_lifespan_in_years: NormalVar
 
     @field_validator(*POSITIVE_COLS)
     def check_positive_values(cls, value: NormalVar) -> NormalVar:
@@ -68,41 +75,50 @@ class TestCoverageApproximations(BaseModel):
 
 
 def main():
-    data = TestCoverageApproximations(
+    input_data = TestCoverageApproximations(
         scenarios_per_task=NormalVar(1, 21, "scenarios_per_task"),
         automate_scenario_in_minutes=NormalVar(20, 100, "automate_scenario_in_minutes"),
         maintain_test_per_year_in_minutes=NormalVar(5, 40, "maintain_test_per_year_in_minutes"),
         manual_check_scenario_in_minutes=NormalVar(5, 60, "manual_check_scenario_in_minutes"),
         additional_checks_per_year=NormalVar(0, 2, "additional_checks_per_year"),
         uncovered_scenario_fixes_per_year=NormalVar(0.1, 0.3, "uncovered_scenario_fixes_per_year"),
-        additional_fix_time_in_minutes=NormalVar(20, 100, "additional_fix_time_in_minutes")
+        additional_fix_time_in_minutes=NormalVar(20, 100, "additional_fix_time_in_minutes"),
+        tasks_per_year=NormalVar(150, 250, "tasks_per_year"),
+        feature_lifespan_in_years=NormalVar(4, 6, "feature_lifespan_in_years"),
+        scenario_checks_before_release=NormalVar(1, 3, "scenario_checks_before_release")
     )
-    get_test_coverage_economy(data, 10000, 200, 5, 2, Beneficiary.Both)
+    np.random.seed(42)
+    beneficiary = Beneficiary.Both
+    df = prepare_df(input_data, beneficiary, 10000)
+    df = adjust_non_positive_values(
+        df,
+        list(set(NON_NEGATIVE_COLS) - {input_data.scenario_checks_before_release.name}),
+        list(set(POSITIVE_COLS) - {input_data.tasks_per_year.name, input_data.feature_lifespan_in_years.name})
+    )
+
+    economy_in_minutes = "economy_in_minutes"
+    df = calculate_economy_in_minutes(df, economy_in_minutes, input_data, beneficiary)
+
+    economy_in_working_months = "economy_in_working_months"
+    working_hours_in_month = 159
+    minutes_in_hour = 60
+    df[economy_in_working_months] = df.apply(
+        lambda row: row[economy_in_minutes] / minutes_in_hour / working_hours_in_month, axis=1
+    )
+
+    output_result(df, economy_in_working_months, "Экономия в рабочих месяцах")
 
 
-def get_test_coverage_economy(
-        data: TestCoverageApproximations,
-        n: int,
-        tasks_per_year: int,
-        years: int,
-        min_checks: int,
-        beneficiary: Beneficiary
-) -> None:
-    """
-    Рассчитывает шанс потратить на автоматизацию больше времени, чем сэкономить
-    :param data: информация о переменных, которые используются для расчета
-    :param n: количество рандомных случаев (в нормальном распределении) для метода Монте-Карло
-    :param tasks_per_year: количество задач в году, для которых можно написать хоть один тест
-    :param years: количество лет, которые в среднем проживают задачи
-    :param min_checks: минимальное количество проверок сценария во время тестирования задачи, например, 2,
-    если выполняется 2 круга тестирования (можно сэкономить на обоих, если написать тест до ручного тестирования)
-    :param beneficiary: рассчитываем пользу для разработчиков, тестировщиков или всех
-    """
-    df = prepare_df(data, beneficiary, n)
-    df = adjust_non_positive_values(df, POSITIVE_COLS, NON_NEGATIVE_COLS)
-    result_column = "total_economy"
-    df = calculate_economy(df, tasks_per_year, years, min_checks, result_column, data, beneficiary)
-    draw_and_print_coverage_case_result(df, result_column)
+def output_result(df: DataFrame, result_column: str, xlabel: str):
+    helpers.draw_hist_with_average(
+        df=df,
+        series_name=result_column,
+        xlabel=xlabel,
+        ylabel="Частота",
+        show=True
+    )
+    print(f"Среднее: {df[result_column].mean()}")
+    print(f"Шанс НЕ сэкономить: {helpers.calculate_fail_chance(df, 0, result_column)}%")
 
 
 def prepare_df(data: TestCoverageApproximations, beneficiary: Beneficiary, n: int) -> DataFrame:
@@ -122,11 +138,8 @@ def prepare_df(data: TestCoverageApproximations, beneficiary: Beneficiary, n: in
     return df
 
 
-def calculate_economy(
+def calculate_economy_in_minutes(
         df: DataFrame,
-        tasks_per_year: int,
-        years: int,
-        min_checks: int,
         result_column: str,
         data: TestCoverageApproximations,
         beneficiary: Beneficiary
@@ -138,11 +151,11 @@ def calculate_economy(
     """
     match beneficiary:
         case Beneficiary.Tester:
-            df = calculate_testers_economy(df, tasks_per_year, years, min_checks, result_column, data)
+            df = calculate_testers_economy(df, result_column, data)
         case Beneficiary.Developer:
-            df = calculate_developer_economy(df, tasks_per_year, years, result_column, data)
+            df = calculate_developer_economy(df, result_column, data)
         case Beneficiary.Both:
-            df = calculate_both_economy(df, tasks_per_year, years, min_checks, result_column, data)
+            df = calculate_both_economy(df, result_column, data)
         case _:
             raise ValueError(f"Некорректное значение Beneficiary: {beneficiary}")
     return df
@@ -150,9 +163,6 @@ def calculate_economy(
 
 def calculate_testers_economy(
         df: DataFrame,
-        tasks_per_year: int,
-        years: int,
-        min_checks: int,
         result_column: str,
         data: TestCoverageApproximations
 ) -> DataFrame:
@@ -161,14 +171,15 @@ def calculate_testers_economy(
     df[testers_spendings_per_scenario] = df.apply(
         lambda row:
         row[data.manual_check_scenario_in_minutes.name] *
-        (min_checks + row[data.additional_checks_per_year.name] * years),
+        (data.scenario_checks_before_release.average + row[
+            data.additional_checks_per_year.name] * data.feature_lifespan_in_years.average),
         axis=1
     )
     df[result_column] = df.apply(
         lambda row:
         (row[testers_spendings_per_scenario] - row[data.automate_scenario_in_minutes.name] - row[
             data.maintain_test_per_year_in_minutes.name])
-        * row[data.scenarios_per_task.name] * tasks_per_year * years,
+        * row[data.scenarios_per_task.name] * data.tasks_per_year.average * data.feature_lifespan_in_years.average,
         axis=1
     )
     return df
@@ -176,8 +187,6 @@ def calculate_testers_economy(
 
 def calculate_developer_economy(
         df: DataFrame,
-        tasks_per_year: int,
-        years: int,
         result_column: str,
         data: TestCoverageApproximations
 ) -> DataFrame:
@@ -185,14 +194,15 @@ def calculate_developer_economy(
     dev_spendings_per_scenario = "dev_spendings_per_scenario"
     df[dev_spendings_per_scenario] = df.apply(
         lambda row:
-        row[data.uncovered_scenario_fixes_per_year.name] * row[data.additional_fix_time_in_minutes.name] * years,
+        row[data.uncovered_scenario_fixes_per_year.name] * row[
+            data.additional_fix_time_in_minutes.name] * data.feature_lifespan_in_years.average,
         axis=1
     )
     df[result_column] = df.apply(
         lambda row:
         (row[dev_spendings_per_scenario] - row[data.automate_scenario_in_minutes.name]
          - row[data.maintain_test_per_year_in_minutes.name])
-        * row[data.scenarios_per_task.name] * tasks_per_year * years,
+        * row[data.scenarios_per_task.name] * data.tasks_per_year.average * data.feature_lifespan_in_years.average,
         axis=1
     )
     return df
@@ -200,9 +210,6 @@ def calculate_developer_economy(
 
 def calculate_both_economy(
         df: DataFrame,
-        tasks_per_year: int,
-        years: int,
-        min_checks: int,
         result_column: str,
         data: TestCoverageApproximations
 ) -> DataFrame:
@@ -210,39 +217,24 @@ def calculate_both_economy(
     df["testers_spendings_per_scenario"] = df.apply(
         lambda row:
         row[data.manual_check_scenario_in_minutes.name] *
-        (min_checks + row[data.additional_checks_per_year.name] * years), axis=1
+        (data.scenario_checks_before_release.average + row[
+            data.additional_checks_per_year.name] * data.feature_lifespan_in_years.average),
+        axis=1
     )
     df["dev_spendings_per_scenario"] = df.apply(
         lambda row:
         row[data.uncovered_scenario_fixes_per_year.name]
-        * row[data.additional_fix_time_in_minutes.name] * years,
+        * row[data.additional_fix_time_in_minutes.name] * data.feature_lifespan_in_years.average,
         axis=1
     )
     df[result_column] = df.apply(
         lambda row:
         (row["testers_spendings_per_scenario"] + row["dev_spendings_per_scenario"] - row[
             data.automate_scenario_in_minutes.name])
-        * row[data.scenarios_per_task.name] * tasks_per_year * years,
+        * row[data.scenarios_per_task.name] * data.tasks_per_year.average * data.feature_lifespan_in_years.average,
         axis=1
     )
     return df
-
-
-def draw_and_print_coverage_case_result(df: DataFrame, result_column: str) -> None:
-    """Рисует гистограмму с результатами и выводит шанс НЕ сэкономить на покрытии"""
-    helpers.print_stats(df, result_column)
-    helpers.draw_hist_with_average(
-        df=df,
-        series_name=result_column,
-        label="Экономия",
-        xlabel="Экономия в минутах",
-        ylabel="Количество вариантов",
-        show=True
-    )
-    plt.savefig("monte-coverage.jpg")
-    working_hours_in_month = 159
-    print(f"Среднее в рабочих месяцах: {df[result_column].mean() / 60 / working_hours_in_month}")
-    helpers.output_fail_chance(0, df, result_column, "Шанс НЕ сэкономить")
 
 
 if __name__ == "__main__":
