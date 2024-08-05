@@ -3,3 +3,4 @@ pandas~=2.2.2
 numpy~=2.0
 scipy~=1.14
 pydantic~=2.7.4
+seaborn~=0.13

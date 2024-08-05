@@ -9,6 +9,7 @@ from pandas import DataFrame
 from enum import Enum
 import helpers
 from helpers import NormalVar, adjust_non_positive_values
+import seaborn
 
 
 class Beneficiary(Enum):
@@ -106,19 +107,12 @@ def main():
         lambda row: row[economy_in_minutes] / minutes_in_hour / working_hours_in_month, axis=1
     )
 
-    output_result(df, economy_in_working_months, "Экономия в рабочих месяцах")
-
-
-def output_result(df: DataFrame, result_column: str, xlabel: str):
-    helpers.draw_hist_with_average(
-        df=df,
-        series_name=result_column,
-        xlabel=xlabel,
-        ylabel="Частота",
-        show=True
-    )
-    print(f"Среднее: {df[result_column].mean()}")
-    print(f"Шанс НЕ сэкономить: {helpers.calculate_fail_chance(df, 0, result_column)}%")
+    seaborn.histplot(data=df[economy_in_working_months])
+    plt.axvline(df[economy_in_working_months].mean(), linestyle='--', label="Среднее")
+    plt.show()
+    print(f"Среднее: {df[economy_in_working_months].mean()}")
+    print(f"Медиана: {df[economy_in_working_months].median()}")
+    print(f"Шанс НЕ сэкономить: {helpers.calculate_fail_chance(df, 0, economy_in_working_months)}%")
 
 
 def prepare_df(data: TestCoverageApproximations, beneficiary: Beneficiary, n: int) -> DataFrame:
