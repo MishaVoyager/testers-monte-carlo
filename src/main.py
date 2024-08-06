@@ -23,13 +23,16 @@ NON_NEGATIVE_COLS: list[str] = [
     "maintain_test_per_year_in_minutes",
     "additional_checks_per_year",
     "uncovered_scenario_fixes_per_year",
-    "additional_fix_time_in_minutes"
+    "additional_fix_time_in_minutes",
+    "scenario_checks_before_release"
 ]
 
 POSITIVE_COLS: list[str] = [
     "scenarios_per_task",
     "automate_scenario_in_minutes",
-    "manual_check_scenario_in_minutes"
+    "manual_check_scenario_in_minutes",
+    "tasks_per_year",
+    "feature_lifespan_in_years"
 ]
 
 
@@ -106,9 +109,10 @@ def main():
     df[economy_in_working_months] = df.apply(
         lambda row: row[economy_in_minutes] / minutes_in_hour / working_hours_in_month, axis=1
     )
-
     seaborn.histplot(data=df[economy_in_working_months])
-    plt.axvline(df[economy_in_working_months].mean(), linestyle='--', label="Среднее")
+    plt.axvline(df[economy_in_working_months].mean(), color="grey", linestyle='--', label="Среднее")
+    plt.xlim(None, df[economy_in_working_months].mean() + 4 * df[economy_in_working_months].std())
+    plt.savefig("coverage.jpg")
     plt.show()
     print(f"Среднее: {df[economy_in_working_months].mean()}")
     print(f"Медиана: {df[economy_in_working_months].median()}")
