@@ -82,7 +82,7 @@ def main():
     input_data = TestCoverageApproximations(
         scenarios_per_task=NormalVar(1, 21, "scenarios_per_task"),
         automate_scenario_in_minutes=NormalVar(20, 100, "automate_scenario_in_minutes"),
-        maintain_test_per_year_in_minutes=NormalVar(5, 40, "maintain_test_per_year_in_minutes"),
+        maintain_test_per_year_in_minutes=NormalVar(0, 10, "maintain_test_per_year_in_minutes"),
         manual_check_scenario_in_minutes=NormalVar(5, 60, "manual_check_scenario_in_minutes"),
         additional_checks_per_year=NormalVar(0, 2, "additional_checks_per_year"),
         uncovered_scenario_fixes_per_year=NormalVar(0.1, 0.3, "uncovered_scenario_fixes_per_year"),
@@ -176,8 +176,8 @@ def calculate_testers_economy(
     df[result_column] = df.apply(
         lambda row:
         (row[testers_spendings_per_scenario] - row[data.automate_scenario_in_minutes.name] - row[
-            data.maintain_test_per_year_in_minutes.name])
-        * row[data.scenarios_per_task.name] * data.tasks_per_year.average * data.feature_lifespan_in_years.average,
+            data.maintain_test_per_year_in_minutes.name] * data.feature_lifespan_in_years.average)
+        * row[data.scenarios_per_task.name] * data.tasks_per_year.average,
         axis=1
     )
     return df
@@ -199,8 +199,8 @@ def calculate_developer_economy(
     df[result_column] = df.apply(
         lambda row:
         (row[dev_spendings_per_scenario] - row[data.automate_scenario_in_minutes.name]
-         - row[data.maintain_test_per_year_in_minutes.name])
-        * row[data.scenarios_per_task.name] * data.tasks_per_year.average * data.feature_lifespan_in_years.average,
+         - row[data.maintain_test_per_year_in_minutes.name] * data.feature_lifespan_in_years.average)
+        * row[data.scenarios_per_task.name] * data.tasks_per_year.average,
         axis=1
     )
     return df
@@ -228,11 +228,23 @@ def calculate_both_economy(
     df[result_column] = df.apply(
         lambda row:
         (row["testers_spendings_per_scenario"] + row["dev_spendings_per_scenario"] - row[
-            data.automate_scenario_in_minutes.name])
-        * row[data.scenarios_per_task.name] * data.tasks_per_year.average * data.feature_lifespan_in_years.average,
+            data.automate_scenario_in_minutes.name] - row[
+             data.maintain_test_per_year_in_minutes.name] * data.feature_lifespan_in_years.average)
+        * row[data.scenarios_per_task.name] * data.tasks_per_year.average,
         axis=1
     )
     return df
+
+
+def calculate_economy_by_average(data: TestCoverageApproximations) -> float:
+    """Рассчитывает экономию по средним значениям, без метода Монте-Карло"""
+    testers_economy = data.manual_check_scenario_in_minutes.average * (
+            data.scenario_checks_before_release.average + data.additional_checks_per_year.average * data.feature_lifespan_in_years.average)
+    dev_economy = data.uncovered_scenario_fixes_per_year.average * data.additional_fix_time_in_minutes.average * data.feature_lifespan_in_years.average
+    result = (testers_economy + dev_economy - data.automate_scenario_in_minutes.average - data.maintain_test_per_year_in_minutes.average * data.feature_lifespan_in_years.average) * data.scenarios_per_task.average * data.tasks_per_year.average
+    working_hours_in_month = 159
+    minutes_in_hour = 60
+    return result / minutes_in_hour / working_hours_in_month
 
 
 if __name__ == "__main__":
